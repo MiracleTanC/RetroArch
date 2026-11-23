@@ -1,0 +1,71 @@
+name: Build RetroArch iOS (Unsigned IPA for iOS18.7 / iOS20)
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout RetroArch
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          depth: 1
+
+      - name: Install deps
+        run: |
+          brew install cmake wget unzip
+
+      - name: Download cores using official update-cores.sh
+        run: |
+          cd pkg/apple
+          sh update-cores.sh nestopia snes9x genesis_plus_gx fceumm gambatte
+          ls -la iOS/modules/
+
+      - name: Xcode build archive 【只编译主App，跳过Widget】
+        run: |
+          cd pkg/apple
+          xcodebuild archive \
+            -project RetroArch_iOS13.xcodeproj \
+            -target RetroArchiOS \
+            -destination generic/platform=iOS \
+            -configuration Release \
+            -archivePath $GITHUB_WORKSPACE/retroarch.xcarchive \
+            IPHONEOS_DEPLOYMENT_TARGET=13.0 \
+            SKIP_SWIFTUI_PREVIEWS=YES \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Export unsigned IPA
+        run: |
+          cat > export-options.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string></string>
+            <key>provisioningProfiles</key>
+            <dict/>
+          </dict>
+          </plist>
+          EOF
+          
+          xcodebuild -exportArchive \
+            -archivePath $GITHUB_WORKSPACE/retroarch.xcarchive \
+            -exportOptionsPlist export-options.plist \
+            -exportPath $GITHUB_WORKSPACE/output
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RetroArch-iOS-unsigned
+          path: output/*.ipa
+          retention-days: 14
